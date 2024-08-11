@@ -1,20 +1,16 @@
-extern crate fastboot;
-use fastboot::fastboot::Fastboot;
-
-extern crate usbio as usb;
-use usb::usbio;
-
-extern crate getopts;
+use fastboot::Fastboot;
 use getopts::Options;
+use usbio::UsbDevice;
 
 fn usage(program: &str, opts: &Options) {
-    let brief = format!(
-        "Version: {}\nUsage: {} [options]",
-        env!("CARGO_PKG_VERSION"),
-        program
-    );
-    print!("{}", opts.usage(&brief));
+    let ver = env!("CARGO_PKG_VERSION");
+    let brief = format!("Version: {ver}\nUsage: {program} [options]");
+    println!("{}", opts.usage(&brief));
 }
+
+// SpacemiT K1x
+const DEFAULT_VID: u16 = 0x361c;
+const DEFAULT_PID: u16 = 0x1001;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -41,19 +37,23 @@ fn main() {
     }
 
     let vid = match matches.opt_str("vid") {
-        Some(value) => u16::from_str_radix(&value, 16).expect("Parsing vendor ID failed"),
-        None => 0x0451,
+        Some(v) => u16::from_str_radix(&v, 16).expect("Parsing vendor ID failed"),
+        None => DEFAULT_VID,
     };
     let pid = match matches.opt_str("pid") {
-        Some(value) => u16::from_str_radix(&value, 16).expect("Parsing product ID failed"),
-        None => 0xd022,
+        Some(v) => u16::from_str_radix(&v, 16).expect("Parsing product ID failed"),
+        None => DEFAULT_PID,
     };
+
     let partition = matches.opt_str("partition").unwrap();
 
-    let context = usbio::UsbContext::new();
-    let mut device = context
-        .open(vid, pid)
-        .expect(&format!("Failed to open {}:{}", vid, pid));
+    let di = nusb::list_devices()
+        .unwrap()
+        .find(|d| d.vendor_id() == vid && d.product_id() == pid)
+        .expect("Device not found, is it connected and in the right mode?");
 
-    println!("Falshing: {:?}", device.flash(&partition));
+    // NOTE: The Fastboot trait gets us the necessary operations on the device.
+    let mut dev = UsbDevice::new(di);
+
+    println!("Flashing: {:?}", dev.flash(&partition));
 }

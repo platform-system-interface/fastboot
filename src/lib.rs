@@ -1,4 +1,5 @@
 pub mod fastboot;
+pub use fastboot::Fastboot;
 
 #[cfg(test)]
 mod tests {
@@ -48,7 +49,7 @@ mod tests {
 
     impl io::Read for MockUsb {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            if buf.len() == 0 {
+            if buf.is_empty() {
                 return Ok(0);
             }
 
@@ -62,7 +63,7 @@ mod tests {
 
     impl io::Write for MockUsb {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            if buf.len() == 0 {
+            if buf.is_empty() {
                 return Ok(0);
             }
 

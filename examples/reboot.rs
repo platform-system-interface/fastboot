@@ -1,19 +1,11 @@
-extern crate fastboot;
-use fastboot::fastboot::Fastboot;
-
-extern crate usbio as usb;
-use usb::usbio;
-
-extern crate getopts;
+use fastboot::Fastboot;
 use getopts::Options;
+use usbio::UsbDevice;
 
 fn usage(program: &str, opts: &Options) {
-    let brief = format!(
-        "Version: {}\nUsage: {} [options]",
-        env!("CARGO_PKG_VERSION"),
-        program
-    );
-    print!("{}", opts.usage(&brief));
+    let ver = env!("CARGO_PKG_VERSION");
+    let brief = format!("Version: {ver}\nUsage: {program} [options]");
+    println!("{}", opts.usage(&brief));
 }
 
 fn main() {
@@ -48,10 +40,12 @@ fn main() {
         None => 0xd022,
     };
 
-    let context = usbio::UsbContext::new();
-    let mut device = context
-        .open(vid, pid)
-        .expect(&format!("Failed to open {}:{}", vid, pid));
+    let di = nusb::list_devices()
+        .unwrap()
+        .find(|d| d.vendor_id() == vid && d.product_id() == pid)
+        .expect("Device not found, is it connected and in the right mode?");
+    let mut dev = UsbDevice::new(di);
 
-    println!("Rebooting: {:?}", device.reboot());
+    // NOTE: The Fastboot trait gets us the necessary operations on the device.
+    println!("Rebooting: {:?}", dev.reboot());
 }

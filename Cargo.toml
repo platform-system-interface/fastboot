@@ -11,6 +11,5 @@ name = "fastboot"
 [dev-dependencies]
 getopts = "*"
 double = "*"
-
-[dev-dependencies.usbio]
-path = "usbio"
+nusb = "=0.1.10"
+usbio = { path = "./usbio" }

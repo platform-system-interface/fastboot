@@ -1,1 +1,2 @@
-pub mod usbio;
+mod usbio;
+pub use usbio::UsbDevice;

@@ -6,4 +6,6 @@ publish = false
 edition = "2021"
 
 [dependencies]
-libusb = "*"
+async-io = "2"
+futures-lite = { version = "2", default-features = false }
+nusb = "=0.1.10"
