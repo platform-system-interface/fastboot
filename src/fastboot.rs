@@ -3,48 +3,59 @@
 use std;
 use std::io::{Read, Write};
 
-///! Result wrapper that yields either a succesful result of a Fastboot operation
-///! or an error [`String`].
+/// Result wrapper that yields either a succesful result of a Fastboot operation
+/// or an error [`String`].
 pub type FbResult<T> = Result<T, String>;
 
 const GETVAR_CMD: &[u8] = b"getvar:";
 const DOWNLOAD_CMD: &[u8] = b"download:";
 const FLASH_CMD: &[u8] = b"flash:";
 const ERASE_CMD: &[u8] = b"erase:";
+const CONTINUE_CMD: &[u8] = b"continue";
 const REBOOT_CMD: &[u8] = b"reboot";
 
+#[derive(Debug, Clone)]
 enum Reply {
-    OKAY(String),
-    DATA(usize),
-    FAIL(String),
-    INFO(String),
+    Okay(String),
+    Data(usize),
+    Fail(String),
+    Info(String),
 }
 
 impl<'s> From<&'s mut [u8]> for Reply {
     fn from(reply: &'s mut [u8]) -> Self {
-        // Split a reply at OKAY/FAIL/DATA
-        let (first, second) = reply.split_at(4);
-        let second = String::from_utf8_lossy(second);
-        match first {
-            b"OKAY" => Reply::OKAY(second.into_owned()),
-            b"INFO" => Reply::INFO(second.into_owned()),
-            b"FAIL" => Reply::FAIL(second.into_owned()),
-            b"DATA" => match usize::from_str_radix(&second, 16) {
-                Ok(size) => Reply::DATA(size),
-                _ => Reply::FAIL("Failed to decode DATA size".to_owned()),
-            },
+        // Split a reply at OKAY/INFO/FAIL/DATA
+        let (kind, data) = reply.split_at(4);
+        let s = String::from_utf8_lossy(data);
+        match kind {
+            b"OKAY" => Reply::Okay(s.into_owned()),
+            b"INFO" => Reply::Info(s.into_owned()),
+            b"FAIL" => Reply::Fail(s.into_owned()),
+            b"DATA" => {
+                // Remove the null bytes that were in the buffer.
+                // Parsing the number would otherwise fail.
+                let d = s.trim_matches(char::from(0));
+                match usize::from_str_radix(d, 16) {
+                    Ok(size) => Reply::Data(size),
+                    _ => Reply::Fail("DATA: Failed to decode size".to_owned()),
+                }
+            }
             _ => {
-                eprintln!("Received: {}", second);
-                Reply::FAIL(second.into_owned())
+                eprintln!("Received: {kind:08x?}: {s}");
+                Reply::Fail(s.into_owned())
             }
         }
     }
 }
 
-const FB_MAX_REPLY_LEN: usize = 64;
-// According to U-Boot documentation, Fastboot is a synchronous protocol. Therefore
-// we should always wait for a reply to our "request". This function will block until
-// a reply or an error (except timeout) is received from USB I/O implementation.
+// NOTE: The real buf size is to be handled in the usbio crate, since it depends
+// on the USB port's speed. This is the overall maximum. Might need rework.
+const FB_MAX_REPLY_LEN: usize = 512;
+
+// According to the spec and the U-Boot documentation, Fastboot is a synchronous
+// protocol. Therefore we should always wait for a reply to our "request".
+// This function will block until a reply or an error (except timeout) is
+// received from the USB I/O implementation.
 // See u-boot/doc/README.android-fastboot-protocol
 fn fb_send<T: Fastboot>(io: &mut T, payload: &[u8]) -> FbResult<Reply> {
     io.write_all(payload).map_err(|err| err.to_string())?;
@@ -55,9 +66,10 @@ fn fb_send<T: Fastboot>(io: &mut T, payload: &[u8]) -> FbResult<Reply> {
             Err(err) => {
                 match err.kind() {
                     std::io::ErrorKind::TimedOut => {
-                        // Trait can't possible now what is a timeout set by a particular Read/Write implementation
-                        // so it will *not* consider TimedOut a fatal error. Instead it will just try again
-                        // until a reply or another error is received.
+                        // Trait can't possible now what is a timeout set by a
+                        // particular Read/Write implementation so it will *not*
+                        // consider TimedOut a fatal error. Instead it will just
+                        // try again until a reply or another error is received.
                         continue;
                     }
                     _ => {
@@ -83,8 +95,8 @@ pub trait Fastboot: Read + Write + Sized {
         cmd.extend_from_slice(var.as_bytes());
         let reply = fb_send(self, &cmd)?;
         match reply {
-            Reply::OKAY(variable) => Ok(variable),
-            Reply::FAIL(message) => Err(message),
+            Reply::Okay(variable) => Ok(variable),
+            Reply::Fail(message) => Err(message),
             _ => Err("Unknown failure".to_owned()),
         }
     }
@@ -102,15 +114,19 @@ pub trait Fastboot: Read + Write + Sized {
         let reply = fb_send(self, &cmd)?;
 
         match reply {
-            Reply::DATA(size) if size == data.len() => {
+            Reply::Data(size) if size == data.len() => {
                 let reply = fb_send(self, data)?;
                 match reply {
-                    Reply::OKAY(_) => Ok(()),
-                    Reply::FAIL(message) => Err(message),
+                    Reply::Okay(_) => Ok(()),
+                    Reply::Fail(message) => Err(message),
+                    Reply::Info(message) => {
+                        println!("{message}");
+                        Err(message)
+                    }
                     _ => Err("Unknown failure".to_owned()),
                 }
             }
-            Reply::FAIL(message) => Err(message),
+            Reply::Fail(message) => Err(message),
             _ => Err("Unknown failure".to_owned()),
         }
     }
@@ -122,8 +138,12 @@ pub trait Fastboot: Read + Write + Sized {
         cmd.extend_from_slice(partition.as_bytes());
         let reply = fb_send(self, &cmd)?;
         match reply {
-            Reply::OKAY(_) => Ok(()),
-            Reply::FAIL(message) => Err(message),
+            Reply::Okay(_) => Ok(()),
+            Reply::Fail(message) => Err(message),
+            Reply::Info(message) => {
+                println!("{message}");
+                Err(message)
+            }
             _ => Err("Unknown failure".to_owned()),
         }
     }
@@ -135,8 +155,19 @@ pub trait Fastboot: Read + Write + Sized {
         cmd.extend_from_slice(partition.as_bytes());
         let reply = fb_send(self, &cmd)?;
         match reply {
-            Reply::OKAY(_) => Ok(()),
-            Reply::FAIL(message) => Err(message),
+            Reply::Okay(_) => Ok(()),
+            Reply::Fail(message) => Err(message),
+            _ => Err("Unknown failure".to_owned()),
+        }
+    }
+
+    /// Continue booting as normal (if possible).
+    /// NOTE: We cannot call this `continue` because of Rust syntax.
+    fn continue_boot(&mut self) -> FbResult<()> {
+        let reply = fb_send(self, CONTINUE_CMD)?;
+        match reply {
+            Reply::Okay(_) => Ok(()),
+            Reply::Fail(message) => Err(message),
             _ => Err("Unknown failure".to_owned()),
         }
     }
@@ -145,8 +176,8 @@ pub trait Fastboot: Read + Write + Sized {
     fn reboot(&mut self) -> FbResult<()> {
         let reply = fb_send(self, REBOOT_CMD)?;
         match reply {
-            Reply::OKAY(_) => Ok(()),
-            Reply::FAIL(message) => Err(message),
+            Reply::Okay(_) => Ok(()),
+            Reply::Fail(message) => Err(message),
             _ => Err("Unknown failure".to_owned()),
         }
     }
