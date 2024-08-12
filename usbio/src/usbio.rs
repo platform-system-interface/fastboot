@@ -6,17 +6,15 @@ use std::time::Duration;
 
 use async_io::{block_on, Timer};
 use futures_lite::FutureExt;
+use nusb::transfer::Direction;
 use nusb::{transfer::RequestBuffer, DeviceInfo, Interface, Speed};
 
 pub struct UsbDevice {
     i: Interface,
     bufsize: usize,
+    e_in: u8,
+    e_out: u8,
 }
-
-// TODO: Is it always those two?
-// Per spec, there must be two endpoints - bulk in and bulk out
-const ENDPOINT_OUT: u8 = 0x02;
-const ENDPOINT_IN: u8 = 0x81;
 
 // NOTE: Per spec, the max packet size (our read buffer size) must be
 // - 64 bytes for full-speed
@@ -31,10 +29,32 @@ impl UsbDevice {
             Speed::Super | Speed::SuperPlus => 1024,
             _ => panic!("Unknown USB device speed {speed:?}"),
         };
+
+        // Per spec, there must be two endpoints - bulk in and bulk out
+        // TODO: Nice error messages when either is not found
+        let fi = di.interfaces().next().unwrap();
+        let ii = fi.interface_number();
         let d = di.open().unwrap();
-        // TODO: may need to use a different interface
-        let i = d.claim_interface(0).unwrap();
-        UsbDevice { i, bufsize }
+        let c = d.configurations().next().unwrap();
+        let s = c.interface_alt_settings().next().unwrap();
+        let e_in = s
+            .endpoints()
+            .find(|e| e.direction() == Direction::In)
+            .unwrap()
+            .address();
+        let e_out = s
+            .endpoints()
+            .find(|e| e.direction() == Direction::Out)
+            .unwrap()
+            .address();
+
+        let i = d.claim_interface(ii).unwrap();
+        UsbDevice {
+            i,
+            bufsize,
+            e_in,
+            e_out,
+        }
     }
 }
 
@@ -44,12 +64,10 @@ impl Read for UsbDevice {
             return Ok(0);
         }
 
-        let endpoint = ENDPOINT_IN;
         let timeout = Duration::from_secs(3);
-
         let fut = async {
             let b = RequestBuffer::new(self.bufsize);
-            let comp = self.i.bulk_in(endpoint, b).await;
+            let comp = self.i.bulk_in(self.e_in, b).await;
             comp.status.map_err(io::Error::other)?;
 
             let n = comp.data.len();
@@ -70,11 +88,9 @@ impl Write for UsbDevice {
             return Ok(0);
         }
 
-        let endpoint = ENDPOINT_OUT;
         let timeout = Duration::from_secs(3);
-
         let fut = async {
-            let comp = self.i.bulk_out(endpoint, buf.to_vec()).await;
+            let comp = self.i.bulk_out(self.e_out, buf.to_vec()).await;
             comp.status.map_err(io::Error::other)?;
 
             let n = comp.data.actual_length();
