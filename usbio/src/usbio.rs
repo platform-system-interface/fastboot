@@ -6,8 +6,10 @@ use std::time::Duration;
 
 use async_io::{block_on, Timer};
 use futures_lite::FutureExt;
-use nusb::transfer::Direction;
-use nusb::{transfer::RequestBuffer, DeviceInfo, Interface, Speed};
+use nusb::{
+    transfer::{Direction, EndpointType, RequestBuffer},
+    DeviceInfo, Interface, Speed,
+};
 
 pub struct UsbDevice {
     i: Interface,
@@ -30,20 +32,23 @@ impl UsbDevice {
             _ => panic!("Unknown USB device speed {speed:?}"),
         };
 
-        // Per spec, there must be two endpoints - bulk in and bulk out
-        // TODO: Nice error messages when either is not found
+        // Just use the first interface - might need improvement
         let fi = di.interfaces().next().unwrap();
         let ii = fi.interface_number();
         let d = di.open().unwrap();
+
+        // Per spec, there must be two endpoints - bulk in and bulk out
+        // TODO: Nice error messages when either is not found
         let c = d.configurations().next().unwrap();
         let s = c.interface_alt_settings().next().unwrap();
-        let e_in = s
+        let mut es = s
             .endpoints()
+            .filter(|e| e.transfer_type() == EndpointType::Bulk);
+        let e_in = es
             .find(|e| e.direction() == Direction::In)
             .unwrap()
             .address();
-        let e_out = s
-            .endpoints()
+        let e_out = es
             .find(|e| e.direction() == Direction::Out)
             .unwrap()
             .address();
