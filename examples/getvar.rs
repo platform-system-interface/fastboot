@@ -53,9 +53,8 @@ fn main() {
 
     // NOTE: The Fastboot trait gets us the necessary operations on the device.
     let mut dev = UsbDevice::new(di);
-    if let Ok(var) = dev.getvar(&variable) {
-        println!("{variable}: {var}");
-    } else {
-        println!("Could not get {variable} :(");
+    match dev.getvar(&variable) {
+        Ok(var) => println!("{variable}: {var}"),
+        Err(err) => println!("Could not get {variable}: {err}"),
     }
 }
