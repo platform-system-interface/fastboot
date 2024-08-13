@@ -13,6 +13,7 @@ fn main() {
     let program = args[0].clone();
     let mut opts = Options::new();
     opts.optflag("h", "help", "Print help");
+    opts.optflag("b", "bootloader", "Reboot into bootloader");
     opts.optopt("", "vid", "Vendor ID", "<hex>");
     opts.optopt("", "pid", "Product ID", "<hex>");
 
@@ -31,6 +32,8 @@ fn main() {
         std::process::exit(0);
     }
 
+    let to_bootloader = matches.opt_present("b");
+
     let vid = match matches.opt_str("vid") {
         Some(value) => u16::from_str_radix(&value, 16).expect("Parsing vendor ID failed"),
         None => 0x0451,
@@ -47,5 +50,8 @@ fn main() {
     let mut dev = UsbDevice::new(di);
 
     // NOTE: The Fastboot trait gets us the necessary operations on the device.
-    println!("Rebooting: {:?}", dev.reboot());
+    match to_bootloader {
+        true => println!("Rebooting into bootloader: {:?}", dev.reboot_bootloader()),
+        false => println!("Rebooting: {:?}", dev.reboot()),
+    }
 }
