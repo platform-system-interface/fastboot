@@ -13,6 +13,7 @@ const FLASH_CMD: &[u8] = b"flash:";
 const ERASE_CMD: &[u8] = b"erase:";
 const CONTINUE_CMD: &[u8] = b"continue";
 const REBOOT_CMD: &[u8] = b"reboot";
+const REBOOT_BOOTLOADER_CMD: &[u8] = b"reboot-bootloader";
 
 #[derive(Debug, Clone)]
 enum Reply {
@@ -175,6 +176,16 @@ pub trait Fastboot: Read + Write + Sized {
     /// Reboots a client.
     fn reboot(&mut self) -> FbResult<()> {
         let reply = fb_send(self, REBOOT_CMD)?;
+        match reply {
+            Reply::Okay(_) => Ok(()),
+            Reply::Fail(message) => Err(message),
+            _ => Err("Unknown failure".to_owned()),
+        }
+    }
+
+    /// Reboots a client.
+    fn reboot_bootloader(&mut self) -> FbResult<()> {
+        let reply = fb_send(self, REBOOT_BOOTLOADER_CMD)?;
         match reply {
             Reply::Okay(_) => Ok(()),
             Reply::Fail(message) => Err(message),
