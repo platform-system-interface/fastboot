@@ -1,2 +1,2 @@
 mod usbio;
-pub use usbio::UsbDevice;
+pub use usbio::{poll_dev, UsbDevice};

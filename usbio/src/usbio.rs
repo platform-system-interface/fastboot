@@ -2,7 +2,8 @@
 //! https://android.googlesource.com/platform/system/core/+/master/fastboot/README.md
 
 use std::io::{self, ErrorKind::TimedOut, Read, Result, Write};
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use async_io::{block_on, Timer};
 use futures_lite::FutureExt;
@@ -16,6 +17,34 @@ pub struct UsbDevice {
     bufsize: usize,
     e_in: u8,
     e_out: u8,
+}
+
+// this should be plenty
+const POLL_DEV_TIMEOUT: Duration = Duration::from_secs(100);
+// some devices only show up only briefly, so we have to be quick
+const POLL_DEV_PERIOD: Duration = Duration::from_millis(1);
+
+// TODO: VID/PID is tedious to figure out beforehand, and need not be unique.
+// We may add another helper to scan for all available devices in fastboot mode.
+// NOTE: The C fastboot CLI would just take the only fastboot device available,
+// or ask to choose via its name.
+pub fn poll_dev(vid: u16, pid: u16) -> std::result::Result<DeviceInfo, String> {
+    let now = Instant::now();
+
+    while Instant::now() <= now + POLL_DEV_TIMEOUT {
+        match nusb::list_devices()
+            .unwrap()
+            .find(|d| d.vendor_id() == vid && d.product_id() == pid)
+        {
+            Some(di) => {
+                return Ok(di);
+            }
+            None => {
+                thread::sleep(POLL_DEV_PERIOD);
+            }
+        }
+    }
+    Err("timeout waiting for USB device".into())
 }
 
 // NOTE: Per spec, the max packet size (our read buffer size) must be
