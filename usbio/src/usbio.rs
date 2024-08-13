@@ -24,6 +24,11 @@ pub struct UsbDevice {
 // - 1024 bytes for Super Speed USB.
 impl UsbDevice {
     pub fn new(di: DeviceInfo) -> Self {
+        // Just use the first interface - might need improvement
+        let ii = di.interfaces().next().unwrap().interface_number();
+        let d = di.open().unwrap();
+        let i = d.claim_interface(ii).unwrap();
+
         let speed = di.speed().unwrap();
         let bufsize = match speed {
             Speed::Full | Speed::Low => 64,
@@ -31,11 +36,6 @@ impl UsbDevice {
             Speed::Super | Speed::SuperPlus => 1024,
             _ => panic!("Unknown USB device speed {speed:?}"),
         };
-
-        // Just use the first interface - might need improvement
-        let fi = di.interfaces().next().unwrap();
-        let ii = fi.interface_number();
-        let d = di.open().unwrap();
 
         // Per spec, there must be two endpoints - bulk in and bulk out
         // TODO: Nice error messages when either is not found
@@ -53,7 +53,6 @@ impl UsbDevice {
             .unwrap()
             .address();
 
-        let i = d.claim_interface(ii).unwrap();
         UsbDevice {
             i,
             bufsize,
